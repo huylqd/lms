@@ -24,8 +24,12 @@ RUN /app/.venv/bin/pytest -q -p no:cacheprovider
 
 # ---- runtime (default target) ----------------------------------------------
 FROM python:3.14.10-slim AS runtime
+# Apply Debian security fixes the base image does not have yet.
 # pip (and the libraries it vendors) is not needed at runtime and carries its own CVEs.
-RUN rm -rf /usr/local/lib/python3.14/site-packages/pip /usr/local/lib/python3.14/site-packages/pip-* \
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/python3.14/site-packages/pip /usr/local/lib/python3.14/site-packages/pip-* \
         /usr/local/lib/python3.14/ensurepip /usr/local/bin/pip* \
     && groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin app
