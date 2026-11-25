@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1
 
 # ---- deps: install exactly what package-lock.json says ----------------------
-FROM node:24.22.3-alpine3.24 AS deps
+FROM node:26.13.1-alpine3.24 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --no-audit --no-fund
 
 # ---- build: standalone Next.js output (no env needed at build time) ---------
-FROM node:24.22.3-alpine3.24 AS build
+FROM node:26.13.1-alpine3.24 AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
@@ -21,7 +21,7 @@ RUN npm run lint && npx tsc --noEmit
 
 # ---- runtime: minimal, non-root, works with a read-only rootfs --------------
 # Writable paths needed at runtime: /tmp and /app/.next/cache (tmpfs in compose).
-FROM node:24.22.3-alpine3.24 AS runtime
+FROM node:26.13.1-alpine3.24 AS runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
