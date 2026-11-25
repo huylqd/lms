@@ -2,22 +2,31 @@
 
 ## A. Server on-prem (`jenkins-agent-22`) — làm một lần
 
-### 1. Runner thứ hai cho repo `lms`
+### 1. Runner cho repo `lms`
 
-Repo trên tài khoản cá nhân thì mỗi runner chỉ gắn được với một repo. Runner hiện có đang phục vụ `utc-chatbot`,
-nên cần cài thêm một runner nữa **trong thư mục khác, với tên khác**.
+Runner chạy dưới user `github-runner` (không có sudo), thư mục `/home/github-runner/actions-runner-lms`.
+Mọi lệnh dưới đây gõ bằng **user có sudo** (vd. `ubuntu`). Thay `<TOKEN>` khi gõ; **đừng lưu token vào file này**.
 
-1. GitHub → repo `huylqd/lms` → **Settings → Actions → Runners → New self-hosted runner → Linux**. Copy URL tải và token.
-2. Trên server (user `ubuntu`):
+1. GitHub → repo `huylqd/lms` → **Settings → Actions → Runners → New self-hosted runner → Linux**. Copy token.
+2. Cài và đăng ký (`--replace` ghi đè runner trùng tên còn sót trên GitHub):
    ```bash
    sudo -iu github-runner bash -c '
      mkdir -p ~/actions-runner-lms && cd ~/actions-runner-lms &&
-     curl -o runner.tar.gz -L <URL_TẢI_TỪ_GITHUB> && tar xzf runner.tar.gz && rm runner.tar.gz &&
+     curl -o runner.tar.gz -L https://github.com/actions/runner/releases/download/v2.338.2/actions-runner-linux-x64-2.338.2.tar.gz && tar xzf runner.tar.gz && rm runner.tar.gz &&
      ./config.sh --url https://github.com/huylqd/lms --token <TOKEN> \
-       --name jenkins-agent-22-lms --labels onprem --unattended'
+       --name jenkins-agent-22-lms --labels onprem --unattended --replace'
    sudo bash -c 'cd /home/github-runner/actions-runner-lms && ./svc.sh install github-runner && ./svc.sh start'
    ```
-3. Kiểm tra trang Runners: `jenkins-agent-22-lms` ở trạng thái **Idle**.
+3. Kiểm tra trang Runners: `jenkins-agent-22-lms` (nhãn `onprem`) ở trạng thái **Idle**.
+
+Cài lại từ đầu (xóa mọi runner cũ trên server):
+```bash
+for s in $(systemctl list-unit-files 'actions.runner.*' --no-legend | awk '{print $1}'); do
+  sudo systemctl disable --now "$s"; sudo rm -f "/etc/systemd/system/$s"; done
+sudo systemctl daemon-reload
+sudo rm -rf /home/ubuntu/actions-runner* /home/github-runner/actions-runner*
+```
+Sau đó xóa các runner Offline trên trang Runners của GitHub (bấm runner → **Remove runner**), rồi làm lại bước 1–3.
 
 ### 2. Thư mục deploy và secrets
 
