@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
-import { Badge, Card, EmptyState, ErrorNotice, Stat } from "@/components/ui";
+import { Badge, Card, EmptyState, ErrorNotice, LedgerRow, Stat } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
-import { OFFERING_STATUS_LABELS, TODO_STATUS_LABELS, formatDateTime, taskKindLabel } from "@/lib/format";
+import { OFFERING_STATUS_LABELS, TODO_STATUS_LABELS, taskKindLabel } from "@/lib/format";
 import {
   offeringsList,
   type LecturerTodoItem,
@@ -23,46 +24,53 @@ const STATUS_TONE: Record<TodoStatus, "warning" | "success" | "danger"> = {
   overdue: "danger",
 };
 
+const entryLink = "font-medium text-ink-900 underline decoration-transparent underline-offset-4 hover:decoration-ink-500";
+
 function StudentTodo({ items }: { items: StudentTodoItem[] }) {
-  if (!items.length) return <EmptyState>Bạn không có nhiệm vụ nào cần làm. Tuyệt vời!</EmptyState>;
+  if (!items.length) return <EmptyState>Bạn không còn nhiệm vụ nào cần nộp. Nhiệm vụ mới sẽ hiện ở đây khi giảng viên giao.</EmptyState>;
   return (
-    <ul className="divide-y divide-slate-100">
+    <ul>
       {items.map((t) => (
-        <li key={t.task_id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <Link href={`/offerings/${t.offering_id}`} className="font-medium text-slate-900 hover:text-brand-700 hover:underline">
-              {t.title}
-            </Link>
-            <p className="text-sm text-slate-600">
-              {taskKindLabel(t.kind)} · {t.offering_title}
-            </p>
+        <LedgerRow key={t.task_id} iso={t.due_at} overdue={t.status === "overdue"}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <div className="min-w-0">
+              <Link href={`/offerings/${t.offering_id}`} className={entryLink}>
+                {t.title}
+              </Link>
+              <p className="mt-0.5 text-sm text-graphite">
+                {taskKindLabel(t.kind)}, lớp {t.offering_title}
+              </p>
+            </div>
+            <div className="shrink-0">
+              <Badge tone={STATUS_TONE[t.status] ?? "neutral"}>{TODO_STATUS_LABELS[t.status] ?? t.status}</Badge>
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-3 text-sm">
-            <span className="text-slate-600">
-              Hạn: <time dateTime={t.due_at ?? undefined}>{formatDateTime(t.due_at)}</time>
-            </span>
-            <Badge tone={STATUS_TONE[t.status] ?? "neutral"}>{TODO_STATUS_LABELS[t.status] ?? t.status}</Badge>
-          </div>
-        </li>
+        </LedgerRow>
       ))}
     </ul>
+  );
+}
+
+function OfferingTally({ title, href, children }: { title: string; href: string; children: ReactNode }) {
+  return (
+    <li className="border-t-2 border-ink-600 pt-3">
+      <Link href={href} className={entryLink}>
+        {title}
+      </Link>
+      <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-3">{children}</dl>
+    </li>
   );
 }
 
 function LecturerTodo({ items }: { items: LecturerTodoItem[] }) {
   if (!items.length) return <EmptyState>Không có bài chờ chấm hay cảnh báo nào.</EmptyState>;
   return (
-    <ul className="grid gap-3 sm:grid-cols-2">
+    <ul className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
       {items.map((o) => (
-        <li key={o.offering_id} className="rounded-xl border border-slate-200 p-4">
-          <Link href={`/offerings/${o.offering_id}`} className="font-medium text-slate-900 hover:text-brand-700 hover:underline">
-            {o.offering_title}
-          </Link>
-          <dl className="mt-3 grid grid-cols-2 gap-3">
-            <Stat label="Bài chờ chấm" value={o.pending_assessments} tone="warning" />
-            <Stat label="Cảnh báo đang mở" value={o.open_alerts} tone="danger" />
-          </dl>
-        </li>
+        <OfferingTally key={o.offering_id} title={o.offering_title} href={`/offerings/${o.offering_id}`}>
+          <Stat label="Bài chờ chấm" value={o.pending_assessments} tone="warning" />
+          <Stat label="Cảnh báo đang mở" value={o.open_alerts} tone="danger" />
+        </OfferingTally>
       ))}
     </ul>
   );
@@ -71,18 +79,13 @@ function LecturerTodo({ items }: { items: LecturerTodoItem[] }) {
 function ManagerTodo({ items }: { items: ManagerTodoItem[] }) {
   if (!items.length) return <EmptyState>Chưa có lớp học phần nào trong phạm vi quản lý.</EmptyState>;
   return (
-    <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <ul className="grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
       {items.map((o) => (
-        <li key={o.offering_id} className="rounded-xl border border-slate-200 p-4">
-          <Link href={`/offerings/${o.offering_id}`} className="font-medium text-slate-900 hover:text-brand-700 hover:underline">
-            {o.offering_title}
-          </Link>
-          <dl className="mt-3 grid grid-cols-3 gap-3">
-            <Stat label="Sinh viên" value={o.students} />
-            <Stat label="Nộp quá hạn" value={o.overdue_submissions} tone="warning" />
-            <Stat label="Cảnh báo" value={o.open_alerts} tone="danger" />
-          </dl>
-        </li>
+        <OfferingTally key={o.offering_id} title={o.offering_title} href={`/offerings/${o.offering_id}`}>
+          <Stat label="Sinh viên" value={o.students} />
+          <Stat label="Nộp quá hạn" value={o.overdue_submissions} tone="warning" />
+          <Stat label="Cảnh báo" value={o.open_alerts} tone="danger" />
+        </OfferingTally>
       ))}
     </ul>
   );
@@ -97,7 +100,7 @@ function Todo({ todo }: { todo: TodoResponse }) {
     case "manager":
       return <ManagerTodo items={todo.items ?? []} />;
     default:
-      return <EmptyState>Chưa có việc cần làm cho vai trò của bạn.</EmptyState>;
+      return <EmptyState>Vai trò của bạn chưa có việc cần làm trên hệ thống.</EmptyState>;
   }
 }
 
@@ -114,8 +117,10 @@ export default async function DashboardPage() {
   return (
     <>
       <AppHeader me={me.ok ? me.data : null} />
-      <main id="main" className="mx-auto w-full max-w-6xl flex-1 space-y-6 px-4 py-8 sm:px-6">
-        <h1 className="text-2xl font-bold text-slate-900">{firstName ? `Xin chào, ${firstName}` : "Bảng điều khiển"}</h1>
+      <main id="main" className="mx-auto w-full max-w-6xl flex-1 space-y-8 px-4 py-10 sm:px-6">
+        <h1 className="font-serif text-3xl font-semibold text-ink-900 sm:text-4xl">
+          {firstName ? `Xin chào, ${firstName}` : "Bảng điều khiển"}
+        </h1>
         {!me.ok && <ErrorNotice>Không tải được thông tin tài khoản: {me.message}</ErrorNotice>}
 
         <Card title="Việc cần làm">
@@ -126,24 +131,30 @@ export default async function DashboardPage() {
           {!offerings.ok ? (
             <ErrorNotice>Không tải được danh sách lớp học phần: {offerings.message}</ErrorNotice>
           ) : list.length === 0 ? (
-            <EmptyState>Bạn chưa có lớp học phần nào.</EmptyState>
+            <EmptyState>Bạn chưa thuộc lớp học phần nào. Nếu đây là nhầm lẫn, hãy liên hệ phòng Đào tạo.</EmptyState>
           ) : (
-            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="-mx-2">
               {list.map((o) => (
                 <li key={o.id}>
                   <Link
                     href={`/offerings/${o.id}`}
-                    className="block h-full rounded-xl border border-slate-200 p-4 hover:border-brand-600 hover:shadow-sm focus-visible:outline-2 focus-visible:outline-brand-600"
+                    className="group grid gap-x-6 gap-y-1 rounded-[4px] px-2 py-3 hover:bg-ink-50 sm:grid-cols-[7rem_1fr_auto] sm:items-baseline"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-xs font-medium text-slate-500">{o.code}</span>
-                      {o.status && <Badge tone={o.status === "open" ? "success" : "neutral"}>{OFFERING_STATUS_LABELS[o.status] ?? o.status}</Badge>}
-                    </div>
-                    <p className="mt-1 font-semibold text-slate-900">{o.title}</p>
-                    {(o.course || o.term) && (
-                      <p className="mt-1 text-sm text-slate-600">
-                        {[o.course?.name, o.term?.name].filter(Boolean).join(" · ")}
-                      </p>
+                    <span className="font-serif text-sm font-semibold tabular-nums text-graphite">{o.code}</span>
+                    <span className="min-w-0">
+                      <span className="block font-medium text-ink-900 group-hover:text-ink-700">{o.title}</span>
+                      {(o.course || o.term) && (
+                        <span className="block text-sm text-graphite">
+                          {[o.course?.name, o.term?.name].filter(Boolean).join(", ")}
+                        </span>
+                      )}
+                    </span>
+                    {o.status && (
+                      <span>
+                        <Badge tone={o.status === "open" ? "success" : "neutral"}>
+                          {OFFERING_STATUS_LABELS[o.status] ?? o.status}
+                        </Badge>
+                      </span>
                     )}
                   </Link>
                 </li>

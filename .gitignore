@@ -32,3 +32,10 @@ reports/
 Thumbs.db
 .idea/
 .vscode/
+
+# Agent skills installed locally via `npx skills add` (not part of the app)
+/.claude/skills/
+/.agents/
+/.inferencesh/
+/skills/
+/skills-lock.json

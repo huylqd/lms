@@ -83,3 +83,15 @@ export function safeHttpUrl(url: string | null | undefined): string | null {
     return null;
   }
 }
+
+const dayFmt = new Intl.DateTimeFormat("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit" });
+const timeFmt = new Intl.DateTimeFormat("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit" });
+
+/** Due date split for the ledger margin: "28/11" and "23:59". Null when there is no valid date. */
+export function dueParts(iso: string | null | undefined): { day: string; time: string } | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const p = Object.fromEntries(dayFmt.formatToParts(d).map((x) => [x.type, x.value]));
+  return { day: `${p.day}/${p.month}`, time: timeFmt.format(d) };
+}

@@ -1,13 +1,42 @@
 @import "tailwindcss";
 
+/*
+ * Visual identity: "Vở ô li & mực tím" — the Vietnamese ruled school notebook (ô li grid, red margin line),
+ * purple fountain-pen ink and the red approval seal. It mirrors the school's core idea: every result is
+ * written down and traceable. Red is structural (margin line) or semantic (overdue/danger) only.
+ */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
-    "Noto Sans", sans-serif;
-  --color-brand-50: #eef6ff;
-  --color-brand-100: #d9eaff;
-  --color-brand-600: #1d4ed8;
-  --color-brand-700: #1e40af;
-  --color-brand-800: #1e3a8a;
+  --font-sans: var(--font-lexend), ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --font-serif: var(--font-literata), ui-serif, Georgia, "Noto Serif", serif;
+
+  /* mực tím — purple ink */
+  --color-ink-50: #f4f0fb;
+  --color-ink-100: #e7dff6;
+  --color-ink-200: #cfc0ec;
+  --color-ink-500: #6a46b0;
+  --color-ink-600: #4e2c8e;
+  --color-ink-700: #3f2375;
+  --color-ink-900: #2a1f4a;
+
+  /* paper and desk */
+  --color-paper: #ffffff;
+  --color-desk: #f2f1f7;
+  --color-rule: #dcd6ec;
+  --color-rule-soft: #ebe7f4;
+  --color-margin: #e7a3aa;
+  --color-graphite: #5d5872;
+  --color-body: #2e2a3d;
+
+  /* semantic */
+  --color-son: #b4232f;
+  --color-son-50: #fcefef;
+  --color-amber-ink: #8a4f00;
+  --color-amber-paper: #fff4df;
+  --color-leaf: #23704f;
+  --color-leaf-50: #eaf5ef;
+
+  /* the ô li rhythm: one large square = 4 small lines */
+  --spacing-oli: 0.375rem;
 }
 
 html {
@@ -15,6 +44,84 @@ html {
 }
 
 body {
-  background: var(--color-slate-50);
-  color: var(--color-slate-900);
+  background: var(--color-desk);
+  color: var(--color-body);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ink-600);
+  outline-offset: 2px;
+}
+
+/* Ô li notebook grid: thin lines every small square, stronger every large square, verticals per large square. */
+.oli-grid {
+  --oli: 1.5rem;
+  background-color: var(--color-paper);
+  background-image:
+    linear-gradient(to right, var(--color-rule) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-rule) 1px, transparent 1px),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--oli) / 4 - 1px),
+      var(--color-rule-soft) calc(var(--oli) / 4 - 1px),
+      var(--color-rule-soft) calc(var(--oli) / 4)
+    );
+  background-size:
+    var(--oli) var(--oli),
+    var(--oli) var(--oli),
+    100% var(--oli);
+}
+
+/* Ledger: date in the margin, content right of the red margin line. */
+.ledger-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.25rem;
+}
+@media (min-width: 40rem) {
+  .ledger-row {
+    grid-template-columns: 7.5rem 1fr;
+    gap: 0;
+  }
+  .ledger-row > .ledger-margin {
+    padding-right: 1rem;
+    text-align: right;
+  }
+  .ledger-row > .ledger-body {
+    border-left: 2px solid var(--color-margin);
+    padding-left: 1.25rem;
+  }
+}
+
+/* Landing: the ink stroke that writes the core loop once. */
+.ink-stroke {
+  transform-origin: top;
+  transform: scaleY(0);
+  animation: ink-write 2.4s cubic-bezier(0.55, 0.1, 0.3, 1) 0.3s forwards;
+}
+.ink-step {
+  opacity: 0;
+  animation: ink-appear 0.5s ease-out forwards;
+  animation-delay: calc(0.4s + var(--i) * 0.36s);
+}
+@keyframes ink-write {
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes ink-appear {
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ink-stroke {
+    animation: none;
+    transform: none;
+  }
+  .ink-step {
+    animation: none;
+    opacity: 1;
+  }
 }
