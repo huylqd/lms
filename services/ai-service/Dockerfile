@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- deps: resolve the locked runtime environment into /app/.venv -----------
-FROM python:3.14.10-slim AS deps
+FROM python:3.15.1-slim AS deps
 COPY --from=ghcr.io/astral-sh/uv:0.13.10 /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -23,7 +23,7 @@ COPY tests ./tests
 RUN /app/.venv/bin/pytest -q -p no:cacheprovider
 
 # ---- runtime (default target) ----------------------------------------------
-FROM python:3.14.10-slim AS runtime
+FROM python:3.15.1-slim AS runtime
 # Apply Debian security fixes the base image does not have yet.
 # pip (and the libraries it vendors) is not needed at runtime and carries its own CVEs.
 RUN apt-get update \
