@@ -1,0 +1,17 @@
+# Keep the build context minimal
+.git
+.gitignore
+.dockerignore
+Dockerfile
+README.md
+*.md
+**/*.env
+.env*
+coverage*
+*.out
+*.test
+bin/
+dist/
+tmp/
+.vscode/
+.idea/

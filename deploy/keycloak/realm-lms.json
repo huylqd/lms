@@ -1,0 +1,69 @@
+{
+  "realm": "lms",
+  "displayName": "Đại học số Trưng Vương",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "passwordPolicy": "length(10) and notUsername and notEmail",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 3600,
+  "ssoSessionMaxLifespan": 36000,
+  "internationalizationEnabled": true,
+  "supportedLocales": ["vi", "en"],
+  "defaultLocale": "vi",
+  "roles": {
+    "realm": [
+      { "name": "student", "description": "Sinh viên" },
+      { "name": "lecturer", "description": "Giảng viên" },
+      { "name": "advisor", "description": "Cố vấn học tập / mentor" },
+      { "name": "faculty_manager", "description": "Quản lý khoa" },
+      { "name": "school_manager", "description": "Phòng ban / ban giám hiệu" },
+      { "name": "partner", "description": "Doanh nghiệp / đối tác" },
+      { "name": "admin", "description": "Quản trị hệ thống" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "lms-web",
+      "name": "LMS Web",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${LMS_WEB_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "rootUrl": "${PUBLIC_URL}",
+      "baseUrl": "/",
+      "redirectUris": ["${PUBLIC_URL}/api/auth/callback"],
+      "webOrigins": ["${PUBLIC_URL}"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${PUBLIC_URL}/"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-lms-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "lms-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,255 @@
+name: DevSecOps
+
+# push to main  -> scan -> test+build 3 images -> scan images -> deploy on-prem -> DAST
+# pull request  -> scan -> test+build 3 images -> scan images (no deploy)
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devsecops-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Scanner images are pinned by digest; Dependabot does not bump these, update them by hand.
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+  SEMGREP_IMAGE: semgrep/semgrep:1.187.0@sha256:0c8dfa7aa1ca8c50233ec9110e8cd88d139dedd603d56507493f74c6f4b3e062
+  TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+  HADOLINT_IMAGE: hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d
+  ZAP_IMAGE: ghcr.io/zaproxy/zaproxy:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af
+  # Findings at these severities fail the pipeline.
+  BLOCK_SEVERITY: CRITICAL,HIGH
+  # name=build-context pairs. Image name is lms-<name>.
+  SERVICES: core-api=services/core-api ai-service=services/ai-service web=apps/web
+
+jobs:
+  # GitHub-hosted runner. All scanners always run; the final gate fails the job if any failed.
+  security-scan:
+    name: Security scan (secrets, SAST, SCA, IaC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # Gitleaks scans the full git history
+          persist-credentials: false
+
+      - name: Check Dockerfiles exist
+        run: |
+          mkdir -p reports
+          missing=0
+          for pair in $SERVICES; do
+            ctx="${pair#*=}"
+            if [ ! -f "$ctx/Dockerfile" ]; then
+              echo "::error file=$ctx/Dockerfile::$ctx/Dockerfile not found"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Secrets - Gitleaks
+        id: gitleaks
+        continue-on-error: true
+        run: |
+          # safe.directory: without it git can refuse the mounted repo and Gitleaks
+          # then scans 0 commits and still exits 0 (silent pass).
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
+            -v "$PWD:/repo" -w /repo "$GITLEAKS_IMAGE" \
+            git . --redact --no-banner --exit-code 1 \
+            --report-format json --report-path reports/gitleaks.json
+
+      - name: SAST - Semgrep
+        id: semgrep
+        continue-on-error: true
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD:/src" -w /src "$SEMGREP_IMAGE" \
+            semgrep scan --config p/default --metrics off \
+            --severity ERROR --error \
+            --text --json-output reports/semgrep.json
+
+      - name: SCA + IaC - Trivy filesystem
+        id: trivy_fs
+        continue-on-error: true
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -w /src "$TRIVY_IMAGE" \
+            fs . --scanners vuln,misconfig --skip-dirs .git \
+            --severity "$BLOCK_SEVERITY" --ignore-unfixed --exit-code 1 \
+            | tee reports/trivy-fs.txt
+
+      - name: Dockerfile lint - Hadolint
+        id: hadolint
+        continue-on-error: true
+        run: |
+          files=""
+          for pair in $SERVICES; do files="$files ${pair#*=}/Dockerfile"; done
+          # shellcheck disable=SC2086
+          docker run --rm -v "$PWD:/src:ro" -w /src "$HADOLINT_IMAGE" \
+            hadolint $files | tee reports/hadolint.txt
+
+      - name: Upload scan reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: security-scan-reports
+          path: reports/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Security gate
+        if: always()
+        env:
+          R_GITLEAKS: ${{ steps.gitleaks.outcome }}
+          R_SEMGREP: ${{ steps.semgrep.outcome }}
+          R_TRIVY: ${{ steps.trivy_fs.outcome }}
+          R_HADOLINT: ${{ steps.hadolint.outcome }}
+        run: |
+          failed=0
+          {
+            echo "## Security gate"
+            echo "| Check | Result |"
+            echo "|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for item in "Secrets (Gitleaks):$R_GITLEAKS" "SAST (Semgrep):$R_SEMGREP" \
+                      "Dependencies + IaC (Trivy):$R_TRIVY" "Dockerfiles (Hadolint):$R_HADOLINT"; do
+            name="${item%:*}"; result="${item##*:}"
+            if [ "$result" = "success" ]; then icon="✅ pass"; else icon="❌ $result"; failed=1; fi
+            echo "| $name | $icon |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "Details: open the failed step's log, or download the 'security-scan-reports' artifact." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Security gate failed. See the job summary."
+            exit 1
+          fi
+
+  # On-prem runner. Unit tests run inside each Dockerfile's `test` stage; images stay in the local daemon.
+  build-scan:
+    name: Test, build & scan images
+    needs: security-scan
+    runs-on: [self-hosted, linux, onprem]
+    timeout-minutes: 45
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Image tag
+        id: meta
+        run: echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Unit tests (Dockerfile test stage)
+        run: |
+          for pair in $SERVICES; do
+            name="${pair%%=*}"; ctx="${pair#*=}"
+            echo "::group::test $name"
+            docker build --target test -t "lms-$name:test" "$ctx"
+            echo "::endgroup::"
+          done
+
+      - name: Build images
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          for pair in $SERVICES; do
+            name="${pair%%=*}"; ctx="${pair#*=}"
+            echo "::group::build $name"
+            docker build \
+              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              -t "lms-$name:$TAG" "$ctx"
+            echo "::endgroup::"
+          done
+
+      - name: SBOM + image scan - Trivy
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          mkdir -p reports
+          failed=0
+          trivy() {
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache \
+              -v "$PWD:/src:ro" -w /src "$TRIVY_IMAGE" "$@"
+          }
+          echo "## Image scan" >> "$GITHUB_STEP_SUMMARY"
+          for pair in $SERVICES; do
+            name="${pair%%=*}"; image="lms-$name:$TAG"
+            # Reports go to stdout so workspace files stay owned by the runner user.
+            trivy image --format cyclonedx --quiet "$image" > "reports/sbom-$name.cdx.json"
+            if trivy image --scanners vuln,secret --severity "$BLOCK_SEVERITY" --ignore-unfixed \
+                 --exit-code 1 "$image" > "reports/trivy-$name.txt"; then
+              echo "- ✅ \`$image\`" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- ❌ \`$image\` (see reports/trivy-$name.txt)" >> "$GITHUB_STEP_SUMMARY"
+              cat "reports/trivy-$name.txt"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Upload image reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-reports
+          path: reports/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  deploy:
+    name: Deploy (on-prem)
+    needs: build-scan
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, onprem]
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-lms
+      cancel-in-progress: false
+    env:
+      IMAGE_TAG: ${{ needs.build-scan.outputs.tag }}
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/lms' }}
+      APP_URL: ${{ vars.APP_URL || 'http://localhost:8880' }}
+    steps:
+      - name: Checkout deploy files
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy
+
+      - name: Deploy with health check and auto-rollback
+        run: bash deploy/deploy.sh
+
+  # Runs after deploy against the live app. Warnings do not fail the job; read the report.
+  dast:
+    name: DAST (OWASP ZAP baseline)
+    needs: deploy
+    runs-on: [self-hosted, linux, onprem]
+    timeout-minutes: 20
+    env:
+      APP_URL: ${{ vars.APP_URL || 'http://localhost:8880' }}
+    steps:
+      - name: ZAP baseline scan
+        run: |
+          out="$RUNNER_TEMP/zap"
+          mkdir -p "$out" && chmod 777 "$out"
+          docker run --rm --network host -v "$out:/zap/wrk:rw" "$ZAP_IMAGE" \
+            zap-baseline.py -t "$APP_URL" -r zap-report.html -J zap-report.json -I
+
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zap-report
+          path: ${{ runner.temp }}/zap/
+          retention-days: 14
+          if-no-files-found: ignore

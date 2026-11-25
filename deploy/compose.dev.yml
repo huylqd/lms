@@ -1,0 +1,12 @@
+# Local development: build the three app images from source.
+#   docker compose -f deploy/compose.yml -f deploy/compose.dev.yml --env-file deploy/app.env up -d --build
+services:
+  core-api:
+    build:
+      context: ../services/core-api
+  ai-service:
+    build:
+      context: ../services/ai-service
+  web:
+    build:
+      context: ../apps/web

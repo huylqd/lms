@@ -1,0 +1,25 @@
+# SITE_ADDRESS=":80" for HTTP (dev, hosts file). Set it to a real domain (e.g. lms.example.edu.vn)
+# and publish ports 80/443 to let Caddy obtain HTTPS certificates automatically.
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	handle /idp/* {
+		reverse_proxy keycloak:8080
+	}
+
+	handle /api/v1/* {
+		reverse_proxy core-api:8080
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
